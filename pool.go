@@ -16,6 +16,7 @@ var (
 )
 
 var (
+	PoolTimeout   = time.Second
 	IdleCheckInit = 30 * time.Minute
 )
 
@@ -27,6 +28,7 @@ type WrapConn interface {
 
 // Pool 基本方法
 type Pool interface {
+	// 获取 WrapConn
 	Get() (WrapConn, error)
 
 	Put(WrapConn) error

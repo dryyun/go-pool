@@ -1,6 +1,5 @@
 package go_pool
 
-
 import (
 	"errors"
 	"fmt"
@@ -20,11 +19,11 @@ type Config struct {
 	Close func(interface{}) error
 	//检查连接是否有效的方法
 	Ping func(interface{}) error
-	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断
+	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断，不设置不检查
 	IdleTimeout time.Duration
-	//获取连接的超时时间
+	//获取连接的超时时间，默认 1s
 	PoolTimeout time.Duration
-	// conn 检测时间，默认 30 分钟 , -1 = disable
+	// conn 检测时间，默认 30m , -1 = disable
 	IdleCheckFrequency time.Duration // TODO  idle check
 }
 
@@ -73,6 +72,10 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 	if poolConfig.Close == nil {
 		return nil, errors.New("invalid close func settings")
 	}
+	if poolConfig.PoolTimeout <= 0 {
+		poolConfig.PoolTimeout = PoolTimeout
+	}
+
 	if poolConfig.IdleCheckFrequency == 0 {
 		poolConfig.IdleCheckFrequency = IdleCheckInit
 	}
@@ -180,7 +183,8 @@ func (c *channelPool) Put(wrapConn WrapConn) error {
 		return nil
 	default:
 		//连接池已满，直接关闭该连接
-		return c.Close(wrapConn)
+		c.Close(wrapConn)
+		return nil
 	}
 }
 
@@ -221,7 +225,15 @@ func (c *channelPool) Ping(wrapConn WrapConn) error {
 func (c *channelPool) Release() {
 	c.mu.Lock()
 	conns := c.conns
+
+	maxCap := cap(conns)
 	c.conns = nil
+	c.conns = make(chan *idleConn, maxCap)
+
+	for i := 0; i < maxCap; i++ {
+		c.conns <- &idleConn{}
+	}
+
 	c.mu.Unlock()
 
 	if conns == nil {
@@ -236,8 +248,12 @@ func (c *channelPool) Release() {
 
 // Len 连接池中已有的连接
 func (c *channelPool) Len() int {
-	if c == nil || c.getConns() == nil {
+	if c == nil {
 		return 0
 	}
-	return len(c.getConns())
+	conns := c.getConns()
+	if conns == nil {
+		return 0
+	}
+	return len(conns)
 }
