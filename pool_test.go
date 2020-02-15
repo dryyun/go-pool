@@ -54,6 +54,7 @@ func TestNew(t *testing.T) {
 		IdleTimeout:        0,
 		PoolTimeout:        0,
 		IdleCheckFrequency: 0,
+		ConcurrentBase:     2,
 	})
 
 	if err != nil {
@@ -262,8 +263,8 @@ func TestIdleTimeout(t *testing.T) {
 
 func TestChannelPool_Release(t *testing.T) {
 	p, _ := NewChannelPool(&Config{
-		InitialCap: 3,
-		MaxCap:     3,
+		InitialCap: 1,
+		MaxCap:     2,
 		Factory:    factory,
 		Close: func(i interface{}) error {
 			if v, ok := i.(net.Conn); ok {
@@ -275,10 +276,32 @@ func TestChannelPool_Release(t *testing.T) {
 		IdleTimeout:        0,
 		PoolTimeout:        0,
 		IdleCheckFrequency: 0,
+		ConcurrentBase:     1,
 	})
 
-	if a := p.Len(); a != 3 {
-		t.Errorf("The pool available was %d but should be 3", a)
+	if a := p.Len(); a != 1 {
+		t.Errorf("The pool available was %d but should be 1", a)
+	}
+
+	c1, e1 := p.Get()
+	if e1 != nil {
+		t.Errorf("Get returned an error: %s", e1.Error())
+	}
+	c2, e2 := p.Get()
+	if e2 != nil {
+		t.Errorf("Get returned an error: %s", e2.Error())
+	}
+	_, e3 := p.Get()
+	if e3 != ErrPoolTimeout {
+		t.Errorf("Expected error \"%s\" but got \"%v\"",
+			ErrPoolTimeout.Error(), e3)
+	}
+
+	p.Put(c1)
+	p.Put(c2)
+
+	if a := p.Len(); a != 2 {
+		t.Errorf("The pool available was %d but should be 2", a)
 	}
 
 	p.Release()
@@ -287,61 +310,32 @@ func TestChannelPool_Release(t *testing.T) {
 		t.Errorf("The pool available was %d but should be 0", a)
 	}
 
+	//
+	c1, e1 = p.Get()
+	if e1 != nil {
+		t.Errorf("Get returned an error: %s", e1.Error())
+	}
+	p.Release()
+	if a := p.Len(); a != 0 {
+		t.Errorf("The pool available was %d but should be 0", a)
+	}
+
+	p.Put(c1)
+
+	_, e11 := p.Get()
+	if e11 != nil {
+		t.Errorf("Get returned an error: %s", e11.Error())
+	}
+	_, e22 := p.Get()
+	if e22 != nil {
+		t.Errorf("Get returned an error: %s", e22.Error())
+	}
+
+	_, e33 := p.Get()
+	if e33 != ErrPoolTimeout {
+		t.Errorf("Expected error \"%s\" but got \"%v\"",
+			ErrPoolTimeout.Error(), e33)
+	}
+
 }
 
-//func TestChannelPoolIdleCheck(t *testing.T) {
-//	p, err := NewChannelPool(&Config{
-//		InitialCap: 1,
-//		MaxCap:     3,
-//		Factory:    factory,
-//		Close: func(i interface{}) error {
-//			if v, ok := i.(net.Conn); ok {
-//				return v.Close()
-//			}
-//			return nil
-//		},
-//		Ping:               nil,
-//		IdleTimeout:        2 * time.Second,
-//		PoolTimeout:        0,
-//		IdleCheckFrequency: 4 * time.Second,
-//	})
-//
-//	if err != nil {
-//		t.Errorf("The pool returned an error: %s", err.Error())
-//	}
-//	if a := p.Len(); a != 3 {
-//		t.Errorf("The pool available was %d but should be 3", a)
-//	}
-//
-//	wrapConn, wrapConnErr := p.Get() //
-//
-//	if wrapConnErr != nil {
-//		t.Errorf("Get returned an error: %s", wrapConnErr.Error())
-//	}
-//
-//	conn, connErr := wrapConn.Get()
-//	if connErr != nil {
-//		t.Errorf("Get returned an error: %s", connErr.Error())
-//	}
-//	connP1 := fmt.Sprintf("%p", conn) // 获取 conn 的指针地址
-//
-//	p.Put(wrapConn)
-//
-//	time.Sleep(5 * time.Second)
-//
-//	// 一次 idle check 之后
-//
-//	wrapConn, wrapConnErr = p.Get() //
-//	if wrapConnErr != nil {
-//		t.Errorf("Get returned an error: %s", wrapConnErr.Error())
-//	}
-//	conn, connErr = wrapConn.Get()
-//	if connErr != nil {
-//		t.Errorf("Get returned an error: %s", connErr.Error())
-//	}
-//	connP3 := fmt.Sprintf("%p", conn) // 再次获取 conn 的指针地址
-//
-//	if connP1 == connP3 {
-//		t.Error("conn ptr address is  equal")
-//	}
-//}

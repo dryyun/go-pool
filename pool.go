@@ -19,29 +19,23 @@ var (
 
 var (
 	PoolTimeoutInit = time.Second
-	IdleCheckInit = 30 * time.Minute
+	IdleCheckInit   = 30 * time.Minute
 )
-
-type WrapConn interface {
-	Get() (interface{}, error)
-
-	Close() error
-}
 
 // Pool 基本方法
 type Pool interface {
 	// 获取 WrapConn
-	Get() (WrapConn, error)
+	Get() (*IdleConn, error)
 
-	Put(WrapConn) error
+	Put(*IdleConn) error
 
 	// 关闭单连接 idleConn
-	Close(WrapConn) error
+	Close(*IdleConn) error
 
 	// 释放连接池中所有连接
 	Release()
 
-	Ping(WrapConn) error
+	Ping(*IdleConn) error
 
 	Len() int
 }
