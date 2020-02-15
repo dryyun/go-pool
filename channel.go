@@ -76,13 +76,17 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 		return nil, errors.New("invalid close func settings")
 	}
 
+	if poolConfig.PoolTimeout <= 0 {
+		poolConfig.PoolTimeout = time.Second
+	}
+
 	if poolConfig.IdleCheckFrequency == 0 {
 		poolConfig.IdleCheckFrequency = IdleCheckInit
 	}
 
 	c := &channelPool{
 		conns:              make(chan *idleConn, poolConfig.MaxCap),
-		queue:              make(chan struct{}, 3*poolConfig.MaxCap),
+		queue:              make(chan struct{}, 2*poolConfig.MaxCap),
 		factory:            poolConfig.Factory,
 		close:              poolConfig.Close,
 		idleTimeout:        poolConfig.IdleTimeout,
@@ -231,9 +235,9 @@ func (c *channelPool) Put(wrapConn WrapConn) error {
 
 	conn, err := wrapConn.Get()
 	if err != nil {
-		c.Close(wrapConn)
 		return err
 	}
+	wrapConn.Close()
 
 	select {
 	case c.conns <- &idleConn{conn: conn, t: time.Now()}:
@@ -251,12 +255,11 @@ func (c *channelPool) Close(wrapConn WrapConn) error {
 		return nil
 	}
 
-	c.freeTurn()
-
 	conn, err := wrapConn.Get()
 	if err != nil {
 		return err
 	}
+	c.freeTurn()
 	wrapConn.Close()
 
 	return c.close(conn)

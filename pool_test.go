@@ -10,7 +10,7 @@ import (
 func TestNew(t *testing.T) {
 	p, err := NewChannelPool(&Config{
 		InitialCap: 1,
-		MaxCap:     3,
+		MaxCap:     2,
 		Factory: func() (i interface{}, err error) {
 			return net.Dial("tcp", "example.com:http")
 		},
@@ -29,8 +29,8 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Errorf("The pool returned an error: %s", err.Error())
 	}
-	if a := p.Len(); a != 3 {
-		t.Errorf("The pool available was %d but should be 3", a)
+	if a := p.Len(); a != 1 {
+		t.Errorf("The pool available was %d but should be 1", a)
 	}
 
 	// Get a conn
@@ -44,8 +44,8 @@ func TestNew(t *testing.T) {
 	if c, err := conn.Get(); err != nil || c == nil {
 		t.Errorf("conn get conn returned an error: %s", err.Error())
 	}
-	if a := p.Len(); a != 2 {
-		t.Errorf("The pool available was %d but should be 2", a)
+	if a := p.Len(); a != 0 {
+		t.Errorf("The pool available was %d but should be 0", a)
 	}
 
 	// Put the conn
@@ -53,13 +53,13 @@ func TestNew(t *testing.T) {
 	if err != nil {
 		t.Errorf("Close returned an error: %s", err.Error())
 	}
-	if a := p.Len(); a != 3 {
-		t.Errorf("The pool available was %d but should be 3", a)
+	if a := p.Len(); a != 1 {
+		t.Errorf("The pool available was %d but should be 1", a)
 	}
 
 	if _, err := conn.Get(); err != ErrConnClosed {
-		t.Errorf("Expected error \"%s\" but got \"%s\"",
-			ErrConnClosed.Error(), err.Error())
+		t.Errorf("Expected error \"%s\" but got \"%v\"",
+			ErrConnClosed.Error(), err)
 	}
 
 	// Put the conn again
@@ -69,10 +69,11 @@ func TestNew(t *testing.T) {
 			ErrConnClosed.Error(), err.Error())
 	}
 
-	// Get 3 conns
+	// Get 4 conns
 	c1, err1 := p.Get()
 	c2, err2 := p.Get()
 	c3, err3 := p.Get()
+	_, err4 := p.Get()
 	if err1 != nil {
 		t.Errorf("Err1 was not nil: %s", err1.Error())
 	}
@@ -82,15 +83,18 @@ func TestNew(t *testing.T) {
 	if err3 != nil {
 		t.Errorf("Err3 was not nil: %s", err3.Error())
 	}
+	if err4 != nil {
+		t.Errorf("Err3 was not nil: %s", err4.Error())
+	}
 
 	if a := p.Len(); a != 0 {
 		t.Errorf("The pool available was %d but should be 0", a)
 	}
 
-	_, err4 := p.Get()
-	if err4 != ErrPoolTimeout {
-		t.Errorf("Expected error \"%s\" but got \"%s\"",
-			ErrPoolTimeout.Error(), err4.Error())
+	_, err5 := p.Get()
+	if err5 != ErrPoolTimeout {
+		t.Errorf("Expected error \"%s\" but got \"%v\"",
+			ErrPoolTimeout.Error(), err5)
 	}
 
 	// Put all of conns
@@ -105,6 +109,10 @@ func TestNew(t *testing.T) {
 	err3 = p.Put(c3)
 	if err3 != nil {
 		t.Errorf("Close returned an error: %s", err3.Error())
+	}
+
+	if a := p.Len(); a != 2 {
+		t.Errorf("The pool available was %d but should be 2", a)
 	}
 }
 
