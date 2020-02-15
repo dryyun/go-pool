@@ -22,7 +22,7 @@ type Config struct {
 	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断，不设置不检查
 	IdleTimeout time.Duration
 	//获取连接的超时时间，不设置不检查
-	PoolTimeout time.Duration // TODO .
+	PoolTimeout time.Duration
 	// conn 检测时间，默认 30m , -1 = disable
 	IdleCheckFrequency time.Duration // TODO .
 }
@@ -77,7 +77,7 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 	}
 
 	if poolConfig.PoolTimeout <= 0 {
-		poolConfig.PoolTimeout = time.Second
+		poolConfig.PoolTimeout = PoolTimeoutInit
 	}
 
 	if poolConfig.IdleCheckFrequency == 0 {
@@ -107,7 +107,7 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 		c.conns <- conn
 	}
 
-	//// 空闲连接处理
+	// 空闲连接处理
 	//if c.idleCheckFrequency > 0 && c.idleTimeout > 0 {
 	//	go c.reaper(c.idleCheckFrequency)
 	//}
@@ -115,6 +115,7 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 	return c, nil
 }
 
+// 定时清理 conn
 //func (c *channelPool) reaper(frequency time.Duration) {
 //	ticker := time.NewTicker(frequency)
 //	defer ticker.Stop()
@@ -124,35 +125,8 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 //		if conns == nil {
 //			break
 //		}
-//		c.reapStaleConns(conns)
+//		//c.reapStaleConns(conns)
 //	}
-//}
-//
-//func (c *channelPool) reapStaleConns(conns chan *idleConn) {
-//	kcs := make([]*idleConn, 0, len(conns))
-//
-//	ll := len(conns)
-//	index := 0
-//
-//	for wrapConn := range conns {
-//		if idleTimeout := c.idleTimeout; idleTimeout > 0 && wrapConn.t.Add(idleTimeout).Before(time.Now()) {
-//			c.Close(wrapConn)
-//			wrapConn.conn = nil
-//			kcs = append(kcs, &idleConn{})
-//		} else {
-//			kcs = append(kcs, wrapConn)
-//		}
-//		index += 1
-//		if index == ll {
-//			break
-//		}
-//	}
-//
-//	for _, kc := range kcs {
-//		conns <- kc
-//	}
-//
-//	return
 //}
 
 // getConns 获取所有连接

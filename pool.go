@@ -18,6 +18,7 @@ var (
 )
 
 var (
+	PoolTimeoutInit = time.Second
 	IdleCheckInit = 30 * time.Minute
 )
 
