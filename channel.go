@@ -21,10 +21,10 @@ type Config struct {
 	Ping func(interface{}) error
 	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断，不设置不检查
 	IdleTimeout time.Duration
-	//获取连接的超时时间，默认 1s
+	//获取连接的超时时间，不设置不检查
 	PoolTimeout time.Duration
 	// conn 检测时间，默认 30m , -1 = disable
-	IdleCheckFrequency time.Duration // TODO  idle check
+	IdleCheckFrequency time.Duration // TODO ?
 }
 
 // channelPool 存放连接信息
@@ -57,6 +57,7 @@ func (i *idleConn) Get() (interface{}, error) {
 func (i *idleConn) Close() error {
 	i.mu.Lock()
 	i.conn = nil
+	i.t = time.Time{}
 	i.mu.Unlock()
 	return nil
 }
@@ -71,9 +72,6 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 	}
 	if poolConfig.Close == nil {
 		return nil, errors.New("invalid close func settings")
-	}
-	if poolConfig.PoolTimeout <= 0 {
-		poolConfig.PoolTimeout = PoolTimeout
 	}
 
 	if poolConfig.IdleCheckFrequency == 0 {
@@ -94,24 +92,61 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 	}
 
 	for i := 0; i < poolConfig.InitialCap; i++ {
-		conn, err := c.factory()
+		conn, err := c.generateConn()
 		if err != nil {
 			c.Release()
 			return nil, fmt.Errorf("factory is not able to fill the pool: %s", err)
 		}
-		c.conns <- &idleConn{
-			conn: conn,
-			t:    time.Now(),
-		}
+		c.conns <- conn
 	}
 
-	// 填充剩下的
-	for i := 0; i < poolConfig.MaxCap-poolConfig.InitialCap; i++ {
-		c.conns <- &idleConn{}
-	}
+	//// 空闲连接处理
+	//if c.idleCheckFrequency > 0 && c.idleTimeout > 0 {
+	//	go c.reaper(c.idleCheckFrequency)
+	//}
 
 	return c, nil
 }
+
+//func (c *channelPool) reaper(frequency time.Duration) {
+//	ticker := time.NewTicker(frequency)
+//	defer ticker.Stop()
+//
+//	for range ticker.C {
+//		conns := c.getConns()
+//		if conns == nil {
+//			break
+//		}
+//		c.reapStaleConns(conns)
+//	}
+//}
+//
+//func (c *channelPool) reapStaleConns(conns chan *idleConn) {
+//	kcs := make([]*idleConn, 0, len(conns))
+//
+//	ll := len(conns)
+//	index := 0
+//
+//	for wrapConn := range conns {
+//		if idleTimeout := c.idleTimeout; idleTimeout > 0 && wrapConn.t.Add(idleTimeout).Before(time.Now()) {
+//			c.Close(wrapConn)
+//			wrapConn.conn = nil
+//			kcs = append(kcs, &idleConn{})
+//		} else {
+//			kcs = append(kcs, wrapConn)
+//		}
+//		index += 1
+//		if index == ll {
+//			break
+//		}
+//	}
+//
+//	for _, kc := range kcs {
+//		conns <- kc
+//	}
+//
+//	return
+//}
 
 // getConns 获取所有连接
 func (c *channelPool) getConns() chan *idleConn {
@@ -119,6 +154,17 @@ func (c *channelPool) getConns() chan *idleConn {
 	defer c.mu.RUnlock()
 
 	return c.conns
+}
+
+func (c *channelPool) generateConn() (*idleConn, error) {
+	conn, err := c.factory()
+	if err != nil {
+		return nil, ErrConnGenerateFailed
+	}
+	return &idleConn{
+		conn: conn,
+		t:    time.Now(),
+	}, nil
 }
 
 // Get 从 pool 中取一个连接
@@ -145,24 +191,20 @@ func (c *channelPool) Get() (WrapConn, error) {
 			}
 		}
 
-		var err error
 		if wrapConn.conn == nil {
-			wrapConn.conn, err = c.factory()
-			if err != nil {
-				conns <- &idleConn{}
-			}
+			return c.generateConn()
 		}
 
-		return wrapConn, err
-	case <-time.After(c.poolTimeout):
-		return nil, ErrPoolTimeout
+		return wrapConn, nil
+	default:
+		return c.generateConn()
 	}
 }
 
 // Put 将连接放回 pool 中
 func (c *channelPool) Put(wrapConn WrapConn) error {
 	if wrapConn == nil {
-		return ErrWrapConnNil
+		return nil
 	}
 
 	c.mu.RLock()
@@ -176,7 +218,6 @@ func (c *channelPool) Put(wrapConn WrapConn) error {
 	if err != nil {
 		return err
 	}
-	wrapConn.Close()
 
 	select {
 	case c.conns <- &idleConn{conn: conn, t: time.Now()}:
@@ -191,7 +232,7 @@ func (c *channelPool) Put(wrapConn WrapConn) error {
 // Close 关闭单条连接
 func (c *channelPool) Close(wrapConn WrapConn) error {
 	if wrapConn == nil {
-		return ErrWrapConnNil
+		return nil
 	}
 
 	conn, err := wrapConn.Get()
@@ -225,15 +266,7 @@ func (c *channelPool) Ping(wrapConn WrapConn) error {
 func (c *channelPool) Release() {
 	c.mu.Lock()
 	conns := c.conns
-
-	maxCap := cap(conns)
 	c.conns = nil
-	c.conns = make(chan *idleConn, maxCap)
-
-	for i := 0; i < maxCap; i++ {
-		c.conns <- &idleConn{}
-	}
-
 	c.mu.Unlock()
 
 	if conns == nil {

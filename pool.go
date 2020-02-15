@@ -12,11 +12,12 @@ var (
 
 	ErrConnClosed = errors.New("conn is closed")
 
+	ErrConnGenerateFailed = errors.New("conn generate failed")
+
 	ErrWrapConnNil = errors.New("wrap conn is nil. rejecting")
 )
 
 var (
-	PoolTimeout   = time.Second
 	IdleCheckInit = 30 * time.Minute
 )
 

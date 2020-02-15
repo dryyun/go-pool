@@ -262,3 +262,62 @@ func TestChannelPool_Release(t *testing.T) {
 	}
 
 }
+
+func TestChannelPoolIdleCheck(t *testing.T) {
+	p, err := NewChannelPool(&Config{
+		InitialCap: 1,
+		MaxCap:     3,
+		Factory: func() (i interface{}, err error) {
+			return net.Dial("tcp", "example.com:http")
+		},
+		Close: func(i interface{}) error {
+			if v, ok := i.(net.Conn); ok {
+				return v.Close()
+			}
+			return nil
+		},
+		Ping:               nil,
+		IdleTimeout:        2 * time.Second,
+		PoolTimeout:        0,
+		IdleCheckFrequency: 4 * time.Second,
+	})
+
+	if err != nil {
+		t.Errorf("The pool returned an error: %s", err.Error())
+	}
+	if a := p.Len(); a != 3 {
+		t.Errorf("The pool available was %d but should be 3", a)
+	}
+
+	wrapConn, wrapConnErr := p.Get() //
+
+	if wrapConnErr != nil {
+		t.Errorf("Get returned an error: %s", wrapConnErr.Error())
+	}
+
+	conn, connErr := wrapConn.Get()
+	if connErr != nil {
+		t.Errorf("Get returned an error: %s", connErr.Error())
+	}
+	connP1 := fmt.Sprintf("%p", conn) // 获取 conn 的指针地址
+
+	p.Put(wrapConn)
+
+	time.Sleep(5 * time.Second)
+
+	// 一次 idle check 之后
+
+	wrapConn, wrapConnErr = p.Get() //
+	if wrapConnErr != nil {
+		t.Errorf("Get returned an error: %s", wrapConnErr.Error())
+	}
+	conn, connErr = wrapConn.Get()
+	if connErr != nil {
+		t.Errorf("Get returned an error: %s", connErr.Error())
+	}
+	connP3 := fmt.Sprintf("%p", conn) // 再次获取 conn 的指针地址
+
+	if connP1 == connP3 {
+		t.Error("conn ptr address is  equal")
+	}
+}
