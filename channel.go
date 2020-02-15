@@ -22,14 +22,16 @@ type Config struct {
 	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断，不设置不检查
 	IdleTimeout time.Duration
 	//获取连接的超时时间，不设置不检查
-	PoolTimeout time.Duration
+	PoolTimeout time.Duration // TODO .
 	// conn 检测时间，默认 30m , -1 = disable
-	IdleCheckFrequency time.Duration // TODO ?
+	IdleCheckFrequency time.Duration // TODO .
 }
 
 // channelPool 存放连接信息
 type channelPool struct {
 	mu                 sync.RWMutex
+	poolSize           int
+	queue              chan struct{} // 考虑存活的 conn 数量，可以是 poolSize 的几倍，需要控制 conn 的数量
 	conns              chan *idleConn
 	factory            func() (interface{}, error)
 	close              func(interface{}) error
@@ -80,6 +82,7 @@ func NewChannelPool(poolConfig *Config) (Pool, error) {
 
 	c := &channelPool{
 		conns:              make(chan *idleConn, poolConfig.MaxCap),
+		queue:              make(chan struct{}, 3*poolConfig.MaxCap),
 		factory:            poolConfig.Factory,
 		close:              poolConfig.Close,
 		idleTimeout:        poolConfig.IdleTimeout,
@@ -157,14 +160,26 @@ func (c *channelPool) getConns() chan *idleConn {
 }
 
 func (c *channelPool) generateConn() (*idleConn, error) {
+	select {
+	case c.queue <- struct{}{}:
+		// get
+	case <-time.After(c.poolTimeout):
+		return nil, ErrPoolTimeout
+	}
+
 	conn, err := c.factory()
 	if err != nil {
+		c.freeTurn()
 		return nil, ErrConnGenerateFailed
 	}
 	return &idleConn{
 		conn: conn,
 		t:    time.Now(),
 	}, nil
+}
+
+func (c *channelPool) freeTurn() {
+	<-c.queue
 }
 
 // Get 从 pool 中取一个连接
@@ -216,6 +231,7 @@ func (c *channelPool) Put(wrapConn WrapConn) error {
 
 	conn, err := wrapConn.Get()
 	if err != nil {
+		c.Close(wrapConn)
 		return err
 	}
 
@@ -234,6 +250,8 @@ func (c *channelPool) Close(wrapConn WrapConn) error {
 	if wrapConn == nil {
 		return nil
 	}
+
+	c.freeTurn()
 
 	conn, err := wrapConn.Get()
 	if err != nil {
