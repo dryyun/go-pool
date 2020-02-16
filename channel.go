@@ -23,7 +23,7 @@ type Config struct {
 	Ping func(interface{}) error
 	//连接最大空闲时间，超过该时间则将失效，根据上次使用时间判断，不设置不检查
 	IdleTimeout time.Duration
-	//获取连接的超时时间，不设置不检查
+	//获取连接的超时时间，默认 1s
 	PoolTimeout time.Duration
 	// conn 检测时间，默认 30m , -1 = disable // TODO ...
 	IdleCheckFrequency time.Duration
@@ -137,11 +137,7 @@ func (c *channelPool) generateConn() (*IdleConn, error) {
 		c.freeTurn()
 		return nil, ErrConnGenerateFailed
 	}
-	return &IdleConn{
-		conn: conn,
-		t:    time.Now(),
-		pool: c,
-	}, nil
+	return NewIdleConn(conn, time.Now(), c), nil
 }
 
 func (c *channelPool) freeTurn() {
@@ -206,7 +202,7 @@ func (c *channelPool) Put(wrapConn *IdleConn) error {
 	wrapConn.Close()
 
 	select {
-	case c.conns <- &IdleConn{conn: conn, t: time.Now(), pool: c}:
+	case c.conns <- NewIdleConn(conn, time.Now(), c):
 		return nil
 	default:
 		//连接池已满，直接关闭该连接

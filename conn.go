@@ -9,7 +9,15 @@ type IdleConn struct {
 	mu   sync.RWMutex
 	conn interface{}
 	t    time.Time
-	pool *channelPool
+	pool Pool
+}
+
+func NewIdleConn(conn interface{}, t time.Time, pool Pool) *IdleConn {
+	return &IdleConn{
+		conn: conn,
+		t:    t,
+		pool: pool,
+	}
 }
 
 func (i *IdleConn) Get() (interface{}, error) {
