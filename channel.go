@@ -159,10 +159,7 @@ func (c *channelPool) Get() (*IdleConn, error) {
 				//丢弃并关闭该连接
 				c.Close(wrapConn)
 				wrapConn.conn = nil
-			}
-
-			//判断是否失效，失效则丢弃，如果用户没有设定 ping 方法，就不检查
-			if err := c.Ping(wrapConn); err != nil {
+			} else if err := c.Ping(wrapConn); err != nil {
 				c.Close(wrapConn)
 				wrapConn.conn = nil
 			}
